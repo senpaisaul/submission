@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-commerce Recommendation System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .product-card {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .loader {
+            border-top-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="loader-overlay" class="fixed inset-0 bg-white bg-opacity-90 z-50 flex flex-col items-center justify-center">
+        <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-24 w-24 mb-4"></div>
+        <h2 class="text-center text-xl font-semibold text-gray-700">Initializing Recommendation Engine...</h2>
+        <p class="w-1/3 text-center text-gray-500 mt-2">This might take a moment. We're loading the data and setting up the Python environment in your browser.</p>
+    </div>
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-gray-900">Product Recommendation System</h1>
+            <p class="text-lg text-gray-600 mt-2">Discover products with our AI-powered search and recommendation engine.</p>
+        </header>
+
+        <!-- LLM Search Section -->
+        <div class="bg-white p-6 rounded-xl shadow-md mb-8 max-w-3xl mx-auto">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2 text-indigo-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+                Smart Search
+            </h2>
+            <p class="text-gray-600 mb-4">Describe what you're looking for, and our AI will find relevant products.</p>
+            <div class="flex flex-col sm:flex-row gap-2">
+                <input type="text" id="llm-query" class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g., 'a gentle face wash for sensitive skin'">
+                <button id="llm-search-btn" class="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center">
+                    <span id="search-btn-text">Find Products</span>
+                    <div id="search-spinner" class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-6 w-6 ml-2 hidden"></div>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Content: Selected Product and Recommendations -->
+        <div id="recommendation-section" class="mb-8" style="display: none;">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div class="md:col-span-1">
+                    <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-b pb-2">Selected Product</h2>
+                    <div id="selected-product"></div>
+                </div>
+                <div class="md:col-span-2">
+                    <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-b pb-2">Similar Items You Might Like</h2>
+                    <div id="recommendations-output" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+                </div>
+            </div>
+             <button id="show-all-btn" class="mt-8 mx-auto block bg-gray-500 text-white font-semibold py-2 px-5 rounded-lg hover:bg-gray-600 transition">Show All Products</button>
+        </div>
+
+
+        <!-- All Products Grid -->
+        <div>
+            <h2 id="product-grid-title" class="text-3xl font-bold mb-6 text-center text-gray-800">All Products</h2>
+            <div id="product-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                <!-- Product cards will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+<script type="text/javascript">
+// --- DATA AND PYTHON CODE ---
+
+// We embed the TSV data and Python code as JavaScript strings.
+const tsvData = `Uniq Id	Crawl Timestamp	Dataset Origin	Product Id	Product Barcode	Product Company Type Source	Product Brand Source	Product Brand Normalised Source	Product Name Source	Match Rank	Match Score	Match Type	Retailer	Product Category	Product Brand	Product Name	Product Price	Sku	Upc	Product Url	Market	Product Description	Product Currency	Product Available Inventory	Product Image Url	Product Model Number	Product Tags	Product Contents	Product Rating	Product Reviews Count	Bsr	Joining Key
+1705736792d82aa2f2d3caf1c07c53f4	2020-09-24 03:21:12 +0000		2e17bf4acecdece67fc00f07ad62c910		Competitor				walmart.com	Premium Beauty > Premium Makeup > Premium Nail Polish & Care > Premium Nail Polish	OPI	OPI Infinite Shine, Nail Lacquer Nail Polish, Bubble Bath	8.95			https://www.walmart.com/ip/OPI-Infinite-Shine-Nail-Lacquer-Nail-Polish-Bubble-Bath/393381147?selected=true	US	""	USD	111111111	https://i5.walmartimages.com/asr/0e1f4c51-c1a4-4f38-91bb-fd19317e3e20.aae056ad1dcaab1abc7f13c21ca53440.jpeg		OPI Infinite Shine, Nail Lacquer Nail Polish, Bubble Bath				
+40a8947911ac3523933ae05c75534b31	2020-09-24 03:21:14 +0000		5c6ea6d6c1b4a53272993809222e9915		Competitor				walmart.com	Health > Medicine & Health > First Aid	Band-Aid	Band-Aid Brand Adhesive Bandage Family Variety Pack, 280 ct	12.88			https://www.walmart.com/ip/Band-Aid-Brand-Adhesive-Bandage-Family-Variety-Pack-280-ct/50337000	US	"Band-Aid Brand Adhesive Bandages offer long lasting protection with a SHEER-DURA-WEAVE bandage. The QUILT-AID Comfort Pad is designed to cushion painful wounds while you heal. This family pack contains 280 sterile bandages in 5 different shapes and sizes.	- 280 sterile bandages in assorted sizes	- QUILT-AID Comfort Pad to cushion painful wounds while you heal	- SHEER-DURA-WEAVE bandage for long lasting protection	- Comes with a variety of sizes for any occasion"	USD	111111111	https://i5.walmartimages.com/asr/a40f178c-6458-482a-9528-c1145a82a0b3_1.a573b9e43685f67ab42562d4e74e47d2.jpeg		Band-Aid Brand Adhesive Bandage Family Variety Pack, 280 ct				
+7c8c3c2f6543b5f922dffb8f729f276c	2020-09-24 03:21:16 +0000		4a759550b92e3a1f8797f82736b412b1		Competitor				walmart.com	Beauty > Makeup > Face Makeup	COVERGIRL	COVERGIRL truBLEND Liquid Makeup, m1 Golden Beige, 1 fl oz	8.92			https://www.walmart.com/ip/COVERGIRL-truBLEND-Liquid-Makeup-m1-Golden-Beige-1-fl-oz/10801556	US	"Finally, a liquid makeup that's as true as you are. COVERGIRL truBLEND Liquid Makeup has a new oil-free formula that is designed to perfectly match 99% of all skin tones. This foundation blends flawlessly for a natural look that's not heavy or cakey, so your skin can look and feel its best.	COVERGIRL truBLEND Liquid Makeup, M1 Golden Beige, 1 oz	New shade-matching system! Find your perfect blend no matter your skin tone.	Guaranteed to match 99% of all skin tones	Oil free	Won't clog pores"	USD	111111111	https://i5.walmartimages.com/asr/3e79e602-2370-4b2a-886f-2395d82f711e_1.ab5f4e3532a2c10b2e3e2b34a2e578c7.jpeg		COVERGIRL truBLEND Liquid Makeup, m1 Golden Beige, 1 fl oz				
+a38435d8869752f9c9b197b105c3d4e7	2020-09-24 03:21:18 +0000		2a884d50d7e63b65578119b4e548545e		Competitor				walmart.com	Premium Beauty > Premium Makeup > Premium Face Makeup	Bare Escentuals	bareMinerals Barepro Performance Wear Powder Foundation, 12 Warm Natural, 0.34 Oz.	21.08			https://www.walmart.com/ip/bareMinerals-Barepro-Performance-Wear-Powder-Foundation-12-Warm-Natural-0-34-Oz/55519343	US	"Get a flawless complexion with this bareMinerals Barepro Performance Wear Powder Foundation. It offers 12 hours of coverage and is formulated to improve the clarity of your skin. This pressed powder foundation is available in a range of shades.bareMinerals Barepro Performance Wear Powder Foundation:Introduced by the design house of Bare EscentualsRecommended for normal wear"	USD	111111111	https://i5.walmartimages.com/asr/e1b347b5-23c5-455b-ab7d-2b7e9b3d22b8_1.d7092c422c5448378d360f4b1625297e.jpeg		bareMinerals Barepro Performance Wear Powder Foundation, 12 Warm Natural, 0.34 Oz.				
+2e7c9f80a6b57d383a8126e38b375b43	2020-09-24 03:21:20 +0000		7a379432f87a82705fe43818e1548a33		Competitor				walmart.com	Personal Care > Deodorants & Antiperspirants	Suave	Suave Essentials 24-Hour Protection Solid Deodorant, Ocean Breeze 2.6 oz	1.98			https://www.walmart.com/ip/Suave-Essentials-24-Hour-Protection-Solid-Deodorant-Ocean-Breeze-2-6-oz/10294191	US	"Enjoy long-lasting odor protection with the Suave Deodorant Stick. Suave Deodorant keeps you feeling clean and smelling fresh all day long. This deodorant for women is recommended for everyday use.	Long-lasting, 24-hour odor protection	Keeps you feeling clean and fresh	Anti-staining formula	Suave Deodorant Stick is perfect for active people	Ocean Breeze scent keeps you smelling fresh throughout your day"	USD	111111111	https://i5.walmartimages.com/asr/eb4e5f2a-e1e3-4b68-8098-a8904e57833a_1.4651f67f005d5272a78152c92b238380.jpeg		Suave Essentials 24-Hour Protection Solid Deodorant, Ocean Breeze 2.6 oz				
+0b81a8b13ae6d203874c7344933a8863	2020-09-24 03:21:23 +0000		48b4f1b467657d903e05ce78163f9bd2		Competitor				walmart.com	Premium Beauty > Premium Makeup > Premium Eye Makeup > Premium Mascara	Maybelline	Maybelline Volum' Express The Colossal Washable Mascara, Glam Black	5.99			https://www.walmart.com/ip/Maybelline-Volum-Express-The-Colossal-Washable-Mascara-Glam-Black/14098939	US	Colossal lashes in just one coat! Lush, collagen-enriched plumping formula and Mega Brush build 9X volume, instantly. Dramatic volume with no clumps. Washable.	Collagen-enriched formula	9X the volume	Mega Brush	Contact lens safe	Ophthalmologist tested	Washable formula	Also available in waterproof formula	Volum' Express The Colossal Washable Mascara, Glam Black 230	Why you'll love it:	Colossal lashes in just one go! The volume-plumping formula contains collagen and the Mega Brush instantly builds 9X the volume, without clumps. Ophthalmologist tested. Contact lens safe.	For best results:	Sweep brush from root to tip. Do not let dry between coats. Removes easily with soap and water or with Maybelline New York Expert Eyes 100% Oil-Free Eye Makeup Remover.	USD	111111111	https://i5.walmartimages.com/asr/391d4cf9-1065-4b95-a22a-22e70e309f06_1.c9a044158428801d0a51e6f6631c5b4d.jpeg		Maybelline Volum' Express The Colossal Washable Mascara, Glam Black				
+050f28e6784d1a4918f673322d99c4bd	2020-09-24 03:21:25 +0000		0d5c0e1597f1f3a531b7f16827027d1a		Competitor				walmart.com	Beauty > Makeup > Eye Makeup > Mascara	L'Oreal Paris	L'Oreal Paris Voluminous Original Mascara, Blackest Black	6.29			https://www.walmart.com/ip/L-Oreal-Paris-Voluminous-Original-Mascara-Blackest-Black/893527	US	"L'Oreal presents Voluminous Original Volume Building Mascara. Uniquely formulated to resist clumping, soften and build lashes up to 5X their natural thickness. The Volume Maximizing Brush quickly thickens and builds lashes evenly for a full and dramatic look. Contains Panthenol and Ceramide-R and helps protect and condition lashes. Resists clumping and flaking, and leaves lashes supple and soft to the touch.	Bold, volume building mascara	Lash-separating and defining brush	Clump-resistant	Fragrance-free	Ophthalmologist-tested and allergy-tested	Suitable for sensitive eyes and contact lens wearers"	USD	111111111	https://i5.walmartimages.com/asr/c7355c70-f47a-42b7-8541-b01c38e938f3_1.99e316a3a78d0f19c8f258e77c5e26b1.jpeg		L'Oreal Paris Voluminous Original Mascara, Blackest Black				
+065870d0325d742e88a38a79899321c2	2020-09-24 03:21:28 +0000		0d0a520f8c3867c2105c3175ef36511a		Competitor				walmart.com	Beauty > Makeup > Face Makeup	COVERGIRL	COVERGIRL Clean Liquid Makeup, 120 Creamy Natural, 1 oz	5.94			https://www.walmart.com/ip/COVERGIRL-Clean-Liquid-Makeup-120-Creamy-Natural-1-oz/893263	US	"COVERGIRL Clean Liquid Makeup gives you a clean, fresh, natural look that's perfect for everyday. This water-based liquid foundation provides lightweight, sheer coverage and is dermatologically tested.	Clean, fresh, natural look	Water-based liquid foundation gives you sheer coverage	Dermatologically tested	Available in shades perfect for light to deep skin tones"	USD	111111111	https://i5.walmartimages.com/asr/7281c7e9-3802-4217-9150-136f0144d186_1.97e444453b3b3a985e51147a7596541f.jpeg		COVERGIRL Clean Liquid Makeup, 120 Creamy Natural, 1 oz				
+b33ae65064e43f5df7a88500259f81a1	2020-09-24 03:21:30 +0000		1846c965e6d62d29497d5a570c679628		Competitor				walmart.com	Beauty > Makeup > Eye Makeup > Mascara	COVERGIRL	COVERGIRL LashBlast Volume Mascara, 800 Very Black, 0.44 fl oz	6.29			https://www.walmart.com/ip/COVERGIRL-LashBlast-Volume-Mascara-800-Very-Black-0-44-fl-oz/5202613	US	"Get that ultimate big-lash look with COVERGIRL Lash Blast Volume Mascara. A blast of lush, volumized lashes all day!	Our mascara is designed to max out every lash	Lash Blast Volume Mascara instantly gives ten times more volume than bare lashes	The Lash Blast volume-boosting, hypoallergenic formula and brush are designed to max out each and every lash, leaving you with the ultimate big-lash look	This volumizing mascara evenly coats each lash with no clumping or flaking"	USD	111111111	https://i5.walmartimages.com/asr/3c051ddb-7d1b-410a-8d76-e3d2319f3595_1.e7a17f69b8281b37497148566d582845.jpeg		COVERGIRL LashBlast Volume Mascara, 800 Very Black, 0.44 fl oz				
+b5b7b9605342a843e49814461a687f65	2020-09-24 03:21:32 +0000		48b940e4f481c4c1a2f9b802617f66a6		Competitor				walmart.com	Health > Medicine & Health > First Aid	Neosporin	Neosporin Original First Aid Antibiotic Ointment, 1 Oz	7.88			https://www.walmart.com/ip/Neosporin-Original-First-Aid-Antibiotic-Ointment-1-Oz/10294158	US	"Neosporin Original Ointment provides long-lasting infection protection and minimizes the appearance of scars. Made with bacitracin zinc, this first aid antibiotic ointment helps prevent infection in minor cuts, scrapes, and burns and helps minimize the appearance of scars. From the #1 doctor-recommended brand, this antibiotic ointment contains a unique HeliDerm Technology that provides a nourishing environment for skin to heal. To treat minor wounds, simply apply a small amount of the 24-hour infection protection antibiotic ointment and scar minimizer on the affected area one to three times daily and enjoy healthy healing with less visible scars.	1-ounce tube of Neosporin Original Topical Antibiotic Ointment for treating minor cuts, scrapes and burns	Wound care ointment is formulated with neomycin sulfate, bacitracin zinc and polymyxin B antibiotic ingredients to provide 24-hour infection protection for minor wounds	Topical first-aid ointment nourishes skin to minimize the appearance of scars after healing	Contains HeliDerm Technology that provides a nourishing environment for skin to heal, resulting in healthier looking skin after use	To use, apply a small amount of the first-aid antibiotic ointment to the affected area one to three times daily. Cover the treated wound with a Band-Aid Brand Adhesive Bandage for proper protection"	USD	111111111	https://i5.walmartimages.com/asr/92900652-320d-4958-b391-62d9e60a320b_1.31d3f0a4f5f8489f0c2a5783457e4e41.jpeg		Neosporin Original First Aid Antibiotic Ointment, 1 Oz				
+0c12fe811181285038c62b9745d152a5	2020-09-24 03:21:35 +0000		4d95b68078505476a02b1130d2165e8a		Competitor				walmart.com	Beauty > Makeup > Face Makeup	COVERGIRL	COVERGIRL Smoothers Moisturizing Concealer Stick, 705 Fair, 0.14 oz	8.99			https://www.walmart.com/ip/COVERGIRL-Smoothers-Moisturizing-Concealer-Stick-705-Fair-0-14-oz/10801533	US	"Get a smooth, even complexion with COVERGIRL Smoothers Moisturizing Concealer Stick. This concealer is infused with ginseng, vitamin E, and chamomile to help hide dark circles and other imperfections while conditioning your skin. Fragrance-free and hypoallergenic, it won't clog your pores.	Glides on easily to help cover dark circles and other imperfections	Infused with ginseng, vitamin E, and chamomile	Hypoallergenic	Fragrance-free	Conditions skin"	USD	111111111	https://i5.walmartimages.com/asr/13f70624-a807-4e3a-8671-55b4d7ed4035_1.1de7b4e7233213a057f9754f7620a8d6.jpeg		COVERGIRL Smoothers Moisturizing Concealer Stick, 705 Fair, 0.14 oz				
+273b52661c02a7a40b8a21557373f1d4	2020-09-24 03:21:37 +0000		1a7e2b6a671b569528f80c6550f757f1		Competitor				walmart.com	Beauty > Makeup > Eye Makeup > Eyeliners	L'Oreal Paris	L'Oreal Paris Infallible Never Fail Eyeliner, Black	6.29			https://www.walmart.com/ip/L-Oreal-Paris-Infallible-Never-Fail-Eyeliner-Black/10294178	US	"L'Oreal presents Infallible Never Fail Mechanical Eyeliner. This rich and creamy eyeliner glides on easily and evenly. The long-wearing formula stays put for up to 16 hours. Use the built-in smudger and sharpener to create a variety of eye looks.	Rich, creme formula glides on easily and evenly	Smudge-proof for up to 16-hours of wear	Built-in smudger and sharpener	Ophthalmologist-tested	Suitable for sensitive eyes and contact lens wearers"	USD	111111111	https://i5.walmartimages.com/asr/c888d3f7-926c-4974-90e6-a07ce011a629_1.e697813a48e718617757db2df8f5f400.jpeg		L'Oreal Paris Infallible Never Fail Eyeliner, Black				
+491b11b3321681a8b06691c28c6883f3	2020-09-24 03:21:39 +0000		180f4dfb5d63f45f7a0989f688e146a4		Competitor				walmart.com	Beauty > Makeup > Eye Makeup > Eyeliners	Maybelline	Maybelline Unstoppable Eyeliner, Onyx	5.49			https://www.walmart.com/ip/Maybelline-Unstoppable-Eyeliner-Onyx/10294157	US	"Define your eyes with Maybelline Unstoppable Eyeliner. This waterproof and smudge-resistant formula delivers definition that lasts. The self-sharpening mechanical pencil is ophthalmologist tested and suitable for sensitive eyes and contact lens wearers.	Waterproof eyeliner	Smudge-resistant formula	Lasts all day	Self-sharpening mechanical pencil	Glides on smooth	Safe for sensitive eyes and contact lens wearers"	USD	111111111	https://i5.walmartimages.com/asr/eb814467-f435-4203-9d0d-34659b87611e_1.03b53a0618844a49c4a56a6953f938f3.jpeg		Maybelline Unstoppable Eyeliner, Onyx				
+3e3b0a70176846173d1f1489c470e4f1	2020-09-24 03:21:42 +0000		4c0d75ce3fb26210f91a56112d385633		Competitor				walmart.com	Beauty > Makeup > Eye Makeup > Eyebrow Makeup	Maybelline	Maybelline Expert Tools, Brush 'n Comb, 1 count	15.19			https://www.walmart.com/ip/Maybelline-Expert-Tools-Brush-n-Comb-1-count/10294156	US	"Expert Tools Brush 'N Comb	Lash brush/eyebrow comb is a must-have beauty basic for grooming and defining	The brush separates lashes and helps remove mascara clumps, and the comb shapes brows"	USD	111111111	https://i5.walmartimages.com/asr/36a99478-f7b2-4809-a720-6d45d62b535d_1.3c8861a126ed956c342d8c363f73315a.jpeg		Maybelline Expert Tools, Brush 'n Comb, 1 count				
+0e39a3f3b9a528c11e031a0e88383a88	2020-09-24 03:21:44 +0000		3c5a6d59265606d2d50e855c82c66d2f		Competitor				walmart.com	Beauty > Makeup > Face Makeup	Maybelline	Maybelline FIT ME! Matte + Poreless Foundation, 120 Classic Ivory	5.34			https://www.walmart.com/ip/Maybelline-FIT-ME-Matte-Poreless-Foundation-120-Classic-Ivory/44111388	US	"This ultra-lightweight foundation contains micro-powders that absorb oil for a matte and poreless-looking finish. Unique formula goes beyond matching skin tone to matching the texture of normal to oily skin for the ultimate natural skin fit. While some foundations can exaggerate pores and oily skin, only Maybelline's pore-minimizing foundation contains their genius blurring micro-powders that erase pores and absorb oil for a naturally matte and poreless-looking finish.	Dermatologist and allergy tested. Does not clog pores. Oil-free.	Ultra-lightweight mattifying foundation for normal to oily skin	Tone and texture-fitting foundation for the ultimate natural fit	Mattifies, erases pores and matches natural tone	Available in 40 shades to match a wide range of skin tones"	USD	111111111	https://i5.walmartimages.com/asr/c04b8849-0d12-4217-b715-e217d84f46ff_1.2ac406f52e4258f3b9f6927d7211104e.jpeg		Maybelline FIT ME! Matte + Poreless Foundation, 120 Classic Ivory				
+3c9c9339e0ab22312c5240f922634e9e	2020-09-24 03:21:46 +0000		6d2b7d4d67341c25227fca240bd04e57		Competitor				walmart.com	Beauty > Makeup > Lip Makeup > Lip Gloss	Burt's Bees	Burt's Bees 100% Natural Moisturizing Lip Shine, Peachy, 0.5 Oz	6.72			https://www.walmart.com/ip/Burt-s-Bees-100-Natural-Moisturizing-Lip-Shine-Peachy-0-5-Oz/36672322	US	"Burt's Bees 100% Natural Moisturizing Lip Shine provides a sheer peachy color and a sweet glassy shine to leave your lips naturally beautiful. This lip shine is enriched with moisturizing apricot wax and nourishing sunflower seed oil to glide on smoothly and hydrate your lips. Just one swipe of this conditioning lip color with nourishing oils and beeswax will leave your lips feeling soft and healthy for a glamorous, glassy-shine. This 100% natural formula comes in a .5 ounce tube and is free of parabens, phthalates, petrolatum and SLS. All of the 6 glossy shades, from pinks, to nudes, to reds deliver a tint and a whole lot of shine. Give your lips a kiss of color and a lot of shine with Burts Bees Lip Shine, for a naturally beautiful smile.	0.5 ounce tube of 100% natural lip shine in Peachy	Provides a sheer peachy color with a glassy shine	Enriched with moisturizing apricot wax and nourishing oils	A hint of sheer lip color, this lip shine is free of parabens, phthalates, petrolatum and SLS	Available in 6 other lovely shades"	USD	111111111	https://i5.walmartimages.com/asr/6a5f782c-4712-4f3b-8f38-89c56667104b_1.6033100366863673c6838382d56a0665.jpeg		Burt's Bees 100% Natural Moisturizing Lip Shine, Peachy, 0.5 Oz				
+065870d0325d742e88a38a79899321c2	2020-09-24 03:21:49 +0000		0d0a520f8c3867c2105c3175ef36511a		Competitor				walmart.com	Beauty > Makeup > Face Makeup	COVERGIRL	COVERGIRL Clean Liquid Makeup, 120 Creamy Natural, 1 oz	5.94			https://www.walmart.com/ip/COVERGIRL-Clean-Liquid-Makeup-120-Creamy-Natural-1-oz/893263	US	"COVERGIRL Clean Liquid Makeup gives you a clean, fresh, natural look that's perfect for everyday. This water-based liquid foundation provides lightweight, sheer coverage and is dermatologically tested.	Clean, fresh, natural look	Water-based liquid foundation gives you sheer coverage	Dermatologically tested	Available in shades perfect for light to deep skin tones"	USD	111111111	https://i5.walmartimages.com/asr/7281c7e9-3802-4217-9150-136f0144d186_1.97e444453b3b3a985e51147a7596541f.jpeg		COVERGIRL Clean Liquid Makeup, 120 Creamy Natural, 1 oz				
+b5b7b9605342a843e49814461a687f65	2020-09-24 03:21:51 +0000		48b940e4f481c4c1a2f9b802617f66a6		Competitor				walmart.com	Health > Medicine & Health > First Aid	Neosporin	Neosporin Original First Aid Antibiotic Ointment, 1 Oz	7.88			https://www.walmart.com/ip/Neosporin-Original-First-Aid-Antibiotic-Ointment-1-Oz/10294158	US	"Neosporin Original Ointment provides long-lasting infection protection and minimizes the appearance of scars. Made with bacitracin zinc, this first aid antibiotic ointment helps prevent infection in minor cuts, scrapes, and burns and helps minimize the appearance of scars. From the #1 doctor-recommended brand, this antibiotic ointment contains a unique HeliDerm Technology that provides a nourishing environment for skin to heal. To treat minor wounds, simply apply a small amount of the 24-hour infection protection antibiotic ointment and scar minimizer on the affected area one to three times daily and enjoy healthy healing with less visible scars.	1-ounce tube of Neosporin Original Topical Antibiotic Ointment for treating minor cuts, scrapes and burns	Wound care ointment is formulated with neomycin sulfate, bacitracin zinc and polymyxin B antibiotic ingredients to provide 24-hour infection protection for minor wounds	Topical first-aid ointment nourishes skin to minimize the appearance of scars after healing	Contains HeliDerm Technology that provides a nourishing environment for skin to heal, resulting in healthier looking skin after use	To use, apply a small amount of the first-aid antibiotic ointment to the affected area one to three times daily. Cover the treated wound with a Band-Aid Brand Adhesive Bandage for proper protection"	USD	111111111	https://i5.walmartimages.com/asr/92900652-320d-4958-b391-62d9e60a320b_1.31d3f0a4f5f8489f0c2a5783457e4e41.jpeg		Neosporin Original First Aid Antibiotic Ointment, 1 Oz				
+0c12fe811181285038c62b9745d152a5	2020-09-24 03:21:53 +0000		4d95b68078505476a02b1130d2165e8a		Competitor				walmart.com	Beauty > Makeup > Face Makeup	COVERGIRL	COVERGIRL Smoothers Moisturizing Concealer Stick, 705 Fair, 0.14 oz	8.99			https://www.walmart.com/ip/COVERGIRL-Smoothers-Moisturizing-Concealer-Stick-705-Fair-0-14-oz/10801533	US	"Get a smooth, even complexion with COVERGIRL Smoothers Moisturizing Concealer Stick. This concealer is infused with ginseng, vitamin E, and chamomile to help hide dark circles and other imperfections while conditioning your skin. Fragrance-free and hypoallergenic, it won't clog your pores.	Glides on easily to help cover dark circles and other imperfections	Infused with ginseng, vitamin E, and chamomile	Hypoallergenic	Fragrance-free	Conditions skin"	USD	111111111	https://i5.walmartimages.com/asr/13f70624-a807-4e3a-8671-55b4d7ed4035_1.1de7b4e7233213a057f9754f7620a8d6.jpeg		COVERGIRL Smoothers Moisturizing Concealer Stick, 705 Fair, 0.14 oz				
+273b52661c02a7a40b8a21557373f1d4	2020-09-24 03:21:55 +0000		1a7e2b6a671b569528f80c6550f757f1		Competitor				walmart.com	Beauty > Makeup > Eye Makeup > Eyeliners	L'Oreal Paris	L'Oreal Paris Infallible Never Fail Eyeliner, Black	6.29			https://www.walmart.com/ip/L-Oreal-Paris-Infallible-Never-Fail-Eyeliner-Black/10294178	US	"L'Oreal presents Infallible Never Fail Mechanical Eyeliner. This rich and creamy eyeliner glides on easily and evenly. The long-wearing formula stays put for up to 16 hours. Use the built-in smudger and sharpener to create a variety of eye looks.	Rich, creme formula glides on easily and evenly	Smudge-proof for up to 16-hours of wear	Built-in smudger and sharpener	Ophthalmologist-tested	Suitable for sensitive eyes and contact lens wearers"	USD	111111111	https://i5.walmartimages.com/asr/c888d3f7-926c-4974-90e6-a07ce011a629_1.e697813a48e718617757db2df8f5f400.jpeg		L'Oreal Paris Infallible Never Fail Eyeliner, Black				
+3e3b0a70176846173d1f1489c470e4f1	2020-09-24 03:21:57 +0000		4c0d75ce3fb26210f91a56112d385633		Competitor				walmart.com	Beauty > Makeup > Eye Makeup > Eyebrow Makeup	Maybelline	Maybelline Expert Tools, Brush 'n Comb, 1 count	15.19			https://www.walmart.com/ip/Maybelline-Expert-Tools-Brush-n-Comb-1-count/10294156	US	"Expert Tools Brush 'N Comb	Lash brush/eyebrow comb is a must-have beauty basic for grooming and defining	The brush separates lashes and helps remove mascara clumps, and the comb shapes brows"	USD	111111111	https://i5.walmartimages.com/asr/36a99478-f7b2-4809-a720-6d45d62b535d_1.3c8861a126ed956c342d8c363f73315a.jpeg		Maybelline Expert Tools, Brush 'n Comb, 1 count				
+0e39a3f3b9a528c11e031a0e88383a88	2020-09-24 03:22:00 +0000		3c5a6d59265606d2d50e855c82c66d2f		Competitor				walmart.com	Beauty > Makeup > Face Makeup	Maybelline	Maybelline FIT ME! Matte + Poreless Foundation, 120 Classic Ivory	5.34			https://www.walmart.com/ip/Maybelline-FIT-ME-Matte-Poreless-Foundation-120-Classic-Ivory/44111388	US	"This ultra-lightweight foundation contains micro-powders that absorb oil for a matte and poreless-looking finish. Unique formula goes beyond matching skin tone to matching the texture of normal to oily skin for the ultimate natural skin fit. While some foundations can exaggerate pores and oily skin, only Maybelline's pore-minimizing foundation contains their genius blurring micro-powders that erase pores and absorb oil for a naturally matte and poreless-looking finish.	Dermatologist and allergy tested. Does not clog pores. Oil-free.	Ultra-lightweight mattifying foundation for normal to oily skin	Tone and texture-fitting foundation for the ultimate natural fit	Mattifies, erases pores and matches natural tone	Available in 40 shades to match a wide range of skin tones"	USD	111111111	https://i5.walmartimages.com/asr/c04b8849-0d12-4217-b715-e217d84f46ff_1.2ac406f52e4258f3b9f6927d7211104e.jpeg		Maybelline FIT ME! Matte + Poreless Foundation, 120 Classic Ivory				
+3c9c9339e0ab22312c5240f922634e9e	2020-09-24 03:22:02 +0000		6d2b7d4d67341c25227fca240bd04e57		Competitor				walmart.com	Beauty > Makeup > Lip Makeup > Lip Gloss	Burt's Bees	Burt's Bees 100% Natural Moisturizing Lip Shine, Peachy, 0.5 Oz	6.72			https://www.walmart.com/ip/Burt-s-Bees-100-Natural-Moisturizing-Lip-Shine-Peachy-0-5-Oz/36672322	US	"Burt's Bees 100% Natural Moisturizing Lip Shine provides a sheer peachy color and a sweet glassy shine to leave your lips naturally beautiful. This lip shine is enriched with moisturizing apricot wax and nourishing sunflower seed oil to glide on smoothly and hydrate your lips. Just one swipe of this conditioning lip color with nourishing oils and beeswax will leave your lips feeling soft and healthy for a glamorous, glassy-shine. This 100% natural formula comes in a .5 ounce tube and is free of parabens, phthalates, petrolatum and SLS. All of the 6 glossy shades, from pinks, to nudes, to reds deliver a tint and a whole lot of shine. Give your lips a kiss of color and a lot of shine with Burts Bees Lip Shine, for a naturally beautiful smile.	0.5 ounce tube of 100% natural lip shine in Peachy	Provides a sheer peachy color with a glassy shine	Enriched with moisturizing apricot wax and nourishing oils	A hint of sheer lip color, this lip shine is free of parabens, phthalates, petrolatum and SLS	Available in 6 other lovely shades"	USD	111111111	https://i5.walmartimages.com/asr/6a5f782c-4712-4f3b-8f38-89c56667104b_1.6033100366863673c6838382d56a0665.jpeg		Burt's Bees 100% Natural Moisturizing Lip Shine, Peachy, 0.5 Oz				
+0298a287900f3e2714407844d1858a18	2020-09-24 03:22:04 +0000		4d9431d1678142d7b420f1882894d01c		Competitor				walmart.com	Health > Medicine & Health > First Aid	Band-Aid	Band-Aid Brand Flexible Fabric Adhesive Bandages, 100 Count	6.88			https://www.walmart.com/ip/Band-Aid-Brand-Flexible-Fabric-Adhesive-Bandages-100-Count/10294155	US	"Band-Aid Brand Flexible Fabric Adhesive Bandages, 100-count, all one size, provide comfortable protection for minor wounds and scrapes. Made with Memory Weave fabric, these sterile bandages stretch and flex as you move. Each bandage features a Quilt-Aid Comfort Pad designed to cushion painful wounds while you heal. Made with a hurt-free pad, these comfortable bandages won't stick to the wound, allowing for gentle removal. This package contains 100 sterile bandages, all one size.	100-count box of sterile Band-Aid Brand Flexible Fabric Adhesive Bandages for first aid and wound protection of minor wounds, cuts, scrapes and burns	Made with Memory-Weave fabric for comfort and flexibility, these bandages stretch, bend, and flex with your skin as you move, and include a Quilt-Aid Comfort Pad designed to cushion painful wounds which may help prevent re-injury	These Band-Aid Brand Flexible Fabric bandages stay on for up to 24 hours and feature a unique Hurt-Free Pad that won't stick to the wound as they wick away blood and fluids, allowing for gentle removal	From the #1 doctor recommended brand, Band-Aid Brand Adhesive Bandages help protect against dirt and germs that may cause infection. Apply bandage to clean, dry skin for minor wound care and change daily, when wet or as needed	This package contains 100 all-one-size flexible adhesive bandages, making them a perfect addition to any home first aid kit"	USD	111111111	https://i5.walmartimages.com/asr/780b5c5e-8395-46f9-93e1-382f42af564b_1.604a329de623a10459c0f99a80579e0e.jpeg		Band-Aid Brand Flexible Fabric Adhesive Bandages, 100 Count				
+01438913b7305322927c62b694b4e943	2020-09-24 03:22:07 +0000		2a884d50d7e63b65578119b4e548545e		Competitor				walmart.com	Premium Beauty > Premium Makeup > Premium Face Makeup	Bare Escentuals	bareMinerals Barepro Performance Wear Powder Foundation, 12 Warm Natural, 0.34 Oz.	21.08			https://www.walmart.com/ip/bareMinerals-Barepro-Performance-Wear-Powder-Foundation-12-Warm-Natural-0-34-Oz/55519343	US	"Get a flawless complexion with this bareMinerals Barepro Performance Wear Powder Foundation. It offers 12 hours of coverage and is formulated to improve the clarity of your skin. This pressed powder foundation is available in a range of shades.bareMinerals Barepro Performance Wear Powder Foundation:Introduced by the design house of Bare EscentualsRecommended for normal wear"	USD	111111111	https://i5.walmartimages.com/asr/e1b347b5-23c5-455b-ab7d-2b7e9b3d22b8_1.d7092c422c5448378d360f4b1625297e.jpeg		bareMinerals Barepro Performance Wear Powder Foundation, 12 Warm Natural, 0.34 Oz.				
+289c09419142f132e6528d227498c4d3	2020-09-24 03:22:09 +0000		2a83359d35a340428bd30b5035f29a43		Competitor				walmart.com	Beauty > Makeup > Face Makeup	Maybelline	Maybelline FIT ME! Matte + Poreless Foundation, 112 Natural Ivory	5.94			https://www.walmart.com/ip/Maybelline-FIT-ME-Matte-Poreless-Foundation-112-Natural-Ivory/44111394	US	"This ultra-lightweight foundation contains micro-powders that absorb oil for a matte and poreless-looking finish. Unique formula goes beyond matching skin tone to matching the texture of normal to oily skin for the ultimate natural skin fit. While some foundations can exaggerate pores and oily skin, only Maybelline's pore-minimizing foundation contains their genius blurring micro-powders that erase pores and absorb oil for a naturally matte and poreless-looking finish.	Dermatologist and allergy tested. Does not clog pores. Oil-free.	Ultra-lightweight mattifying foundation for normal to oily skin	Tone and texture-fitting foundation for the ultimate natural fit	Mattifies, erases pores and matches natural tone	Available in 40 shades to match a wide range of skin tones"	USD	111111111	https://i5.walmartimages.com/asr/31ac3e79-5831-4a11-a88f-7c15e4a81b24_1.87a0b5f2571b6083d29d36a30c841c33.jpeg		Maybelline FIT ME! Matte + Poreless Foundation, 112 Natural Ivory				
+2b63897711f56863640b2a75225fa50e	2020-09-24 03:22:11 +0000		0d0a520f8c3867c2105c3175ef36511a		Competitor				walmart.com	Beauty > Makeup > Face Makeup	COVERGIRL	COVERGIRL Clean Liquid Makeup, 120 Creamy Natural, 1 oz	5.94			https://www.walmart.com/ip/COVERGIRL-Clean-Liquid-Makeup-120-Creamy-Natural-1-oz/893263	US	"COVERGIRL Clean Liquid Makeup gives you a clean, fresh, natural look that's perfect for everyday. This water-based liquid foundation provides lightweight, sheer coverage and is dermatologically tested.	Clean, fresh, natural look	Water-based liquid foundation gives you sheer coverage	Dermatologically tested	Available in shades perfect for light to deep skin tones"	USD	111111111	https://i5.walmartimages.com/asr/7281c7e9-3802-4217-9150-136f0144d186_1.97e444453b3b3a985e51147a7596541f.jpeg		COVERGIRL Clean Liquid Makeup, 120 Creamy Natural, 1 oz				
+`;
+
+const pythonCode = `
+import pandas as pd
+import io
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from js import Object, to_py
+
+def setup_recommendation_engine(data_string):
+    """
+    Initializes the recommendation engine by processing the data and creating the similarity matrix.
+    """
+    try:
+        # Read the TSV data from the string
+        df = pd.read_csv(io.StringIO(data_string), sep='\\t', on_bad_lines='skip')
+
+        # --- Data Cleaning and Preprocessing ---
+        # Select relevant columns
+        columns_to_keep = ['Uniq Id', 'Product Name', 'Product Brand', 'Product Category', 'Product Description', 'Product Price', 'Product Image Url']
+        df = df[columns_to_keep]
+
+        # Drop rows with missing product names or IDs
+        df.dropna(subset=['Uniq Id', 'Product Name'], inplace=True)
+
+        # Drop duplicate products
+        df.drop_duplicates(subset=['Uniq Id'], inplace=True)
+        df.drop_duplicates(subset=['Product Name'], inplace=True)
+
+        # Fill missing text data with empty strings
+        for col in ['Product Brand', 'Product Category', 'Product Description']:
+            df[col].fillna('', inplace=True)
+        
+        # Ensure price is numeric, fill NaNs with 0
+        df['Product Price'] = pd.to_numeric(df['Product Price'], errors='coerce').fillna(0)
+
+        # Reset index after dropping rows
+        df.reset_index(drop=True, inplace=True)
+
+        # --- Feature Engineering for Content-Based Filtering ---
+        # Create a 'soup' of text features for TF-IDF
+        df['soup'] = df['Product Name'] + ' ' + df['Product Brand'] + ' ' + df['Product Category'] + ' ' + df['Product Description']
+        
+        # --- TF-IDF and Cosine Similarity ---
+        # Initialize TF-IDF Vectorizer
+        tfidf = TfidfVectorizer(stop_words='english')
+        
+        # Fit and transform the 'soup' column
+        tfidf_matrix = tfidf.fit_transform(df['soup'])
+        
+        # Compute the cosine similarity matrix
+        cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+
+        # Create a mapping from product names to dataframe index
+        indices = pd.Series(df.index, index=df['Product Name']).drop_duplicates()
+
+        # Store results globally within the Python scope
+        global_vars['df'] = df
+        global_vars['cosine_sim'] = cosine_sim
+        global_vars['indices'] = indices
+        
+        return df.to_dict(orient='records')
+
+    except Exception as e:
+        print(f"Error in setup: {e}")
+        return None
+
+def get_recommendations_py(product_name, top_n=5):
+    """
+    Gets recommendations for a given product name.
+    """
+    try:
+        df = global_vars['df']
+        cosine_sim = global_vars['cosine_sim']
+        indices = global_vars['indices']
+
+        if product_name not in indices:
+            return []
+
+        idx = indices[product_name]
+        sim_scores = list(enumerate(cosine_sim[idx]))
+        sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+        
+        # Get scores of the N most similar products (N+1 to exclude the product itself)
+        sim_scores = sim_scores[1:top_n+1]
+        
+        product_indices = [i[0] for i in sim_scores]
+        
+        # Return the recommended products as a list of dictionaries
+        return df.iloc[product_indices].to_dict(orient='records')
+
+    except Exception as e:
+        print(f"Error in get_recommendations_py: {e}")
+        return []
+
+def search_products_py(query, top_n=10):
+    """
+    Searches for products based on a query string.
+    If an exact match is found, it returns recommendations for that product.
+    Otherwise, it returns products containing the query in their name.
+    """
+    try:
+        df = global_vars['df']
+        query = query.lower()
+
+        # First, try to get recommendations for the top search result
+        # This gives more relevant results than just a simple text search
+        matching_products = df[df['Product Name'].str.lower().str.contains(query)]
+        if not matching_products.empty:
+            # Get recommendations for the *first* and most relevant search result
+            top_result_name = matching_products.iloc[0]['Product Name']
+            recommendations = get_recommendations_py(top_result_name, top_n -1)
+            # Combine the top result with its recommendations
+            results = [matching_products.iloc[0].to_dict()] + recommendations
+            # Remove duplicates if any
+            unique_results = []
+            seen_ids = set()
+            for res in results:
+                if res['Uniq Id'] not in seen_ids:
+                    unique_results.append(res)
+                    seen_ids.add(res['Uniq Id'])
+            return unique_results[:top_n]
+
+        return [] # Return empty if no matches found
+
+    except Exception as e:
+        print(f"Error in search_products_py: {e}")
+        return []
+
+# Dictionary to hold global variables like the dataframe and similarity matrix
+global_vars = {}
+`;
+
+
+// --- JAVASCRIPT LOGIC ---
+document.addEventListener('DOMContentLoaded', async () => {
+    const loaderOverlay = document.getElementById('loader-overlay');
+    const productGrid = document.getElementById('product-grid');
+    const productGridTitle = document.getElementById('product-grid-title');
+    const llmQueryInput = document.getElementById('llm-query');
+    const llmSearchBtn = document.getElementById('llm-search-btn');
+    const searchBtnText = document.getElementById('search-btn-text');
+    const searchSpinner = document.getElementById('search-spinner');
+    const recommendationSection = document.getElementById('recommendation-section');
+    const selectedProductDiv = document.getElementById('selected-product');
+    const recommendationsOutputDiv = document.getElementById('recommendations-output');
+    const showAllBtn = document.getElementById('show-all-btn');
+
+    let pyodide;
+    let allProducts = [];
+
+    // Main initialization function
+    async function main() {
+        pyodide = await loadPyodide();
+        await pyodide.loadPackage(['pandas', 'scikit-learn']);
+        await pyodide.runPythonAsync(pythonCode);
+        
+        // Setup the recommendation engine and get all products
+        const setupEngine = pyodide.globals.get('setup_recommendation_engine');
+        const products_js = await setupEngine(tsvData);
+        
+        if (!products_js) {
+            console.error("Python script 'setup_recommendation_engine' failed to return product data. Check the console for Python-specific errors.");
+            loaderOverlay.innerHTML = '<h2 class="text-center text-xl font-semibold text-red-500">Error: Could not process product data.</h2><p class="w-1/3 text-center text-gray-500 mt-2">Please check the developer console for more details.</p>';
+            return;
+        }
+        
+        allProducts = products_js.toJs({dict_converter : Object.fromEntries});
+        products_js.destroy(); // Clean up Pyodide proxy to free memory
+        
+        renderProducts(allProducts, productGrid);
+        loaderOverlay.style.display = 'none';
+    }
+
+    function createProductCard(product) {
+        // Use a placeholder image if the original URL is invalid
+        const imageUrl = product['Product Image Url'] ? product['Product Image Url'].split(' | ')[0] : 'https://placehold.co/400x400/e2e8f0/cbd5e0?text=No+Image';
+        
+        return `
+            <div class="product-card bg-white rounded-lg shadow-md overflow-hidden cursor-pointer p-4 flex flex-col" data-product-name="${product['Product Name']}">
+                <div class="flex-grow">
+                    <img src="${imageUrl}" alt="${product['Product Name']}" class="w-full h-48 object-contain mb-4" onerror="this.onerror=null;this.src='https://placehold.co/400x400/e2e8f0/cbd5e0?text=No+Image';">
+                    <h3 class="font-semibold text-gray-800 text-sm leading-tight">${product['Product Name']}</h3>
+                    <p class="text-xs text-gray-500 mt-1">${product['Product Brand'] || ''}</p>
+                </div>
+                <div class="mt-4">
+                    <p class="text-lg font-bold text-indigo-600">$${parseFloat(product['Product Price']).toFixed(2)}</p>
+                </div>
+            </div>
+        `;
+    }
+    
+    function renderProducts(products, container) {
+        if (!products || products.length === 0) {
+            container.innerHTML = `<p class="text-center col-span-full text-gray-500">No products found.</p>`;
+            return;
+        }
+        container.innerHTML = products.map(createProductCard).join('');
+    }
+    
+    // Event listener for clicking on a product card
+    document.body.addEventListener('click', (e) => {
+        const card = e.target.closest('.product-card');
+        if (card) {
+            const productName = card.dataset.productName;
+            displayRecommendations(productName);
+        }
+    });
+
+    async function displayRecommendations(productName) {
+        const product = allProducts.find(p => p['Product Name'] === productName);
+        if (!product) return;
+
+        // Display selected product
+        selectedProductDiv.innerHTML = createProductCard(product);
+
+        // Get and display recommendations
+        const getRecommendations = pyodide.globals.get('get_recommendations_py');
+        const recommended_products_js = await getRecommendations(productName);
+        
+        if (recommended_products_js) {
+            const recommendedProducts = recommended_products_js.toJs({dict_converter : Object.fromEntries});
+            recommended_products_js.destroy(); // Clean up Pyodide proxy
+            renderProducts(recommendedProducts, recommendationsOutputDiv);
+        } else {
+             recommendationsOutputDiv.innerHTML = `<p class="text-center col-span-full text-gray-500">Could not find recommendations.</p>`;
+        }
+
+        // Show recommendation section and scroll to it
+        recommendationSection.style.display = 'block';
+        productGrid.parentElement.style.display = 'none';
+        productGridTitle.style.display = 'none';
+        recommendationSection.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Event listener for the "Show All Products" button
+    showAllBtn.addEventListener('click', () => {
+        recommendationSection.style.display = 'none';
+        productGrid.parentElement.style.display = 'block';
+        productGridTitle.style.display = 'block';
+        productGridTitle.textContent = "All Products";
+        renderProducts(allProducts, productGrid);
+    });
+    
+    // --- LLM API INTEGRATION ---
+    async function callGemini(query) {
+        const apiKey = ""; // API key will be provided by the environment
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+        const systemPrompt = `You are a helpful e-commerce search assistant. Your goal is to extract the most relevant search term or product name from the user's query. Respond with ONLY the most likely product name or a concise search term (2-3 words max) and nothing else. For example, if the user says 'I need a new lipstick, something red and bold', you should respond with 'red lipstick'. If they say 'I need a good cream for my dry face', you should respond with 'face cream'.`;
+
+        const payload = {
+            contents: [{ parts: [{ text: query }] }],
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+        };
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                throw new Error(`API call failed with status: ${response.status}`);
+            }
+            const result = await response.json();
+            const candidate = result.candidates?.[0];
+            if (candidate && candidate.content?.parts?.[0]?.text) {
+                return candidate.content.parts[0].text.trim();
+            }
+            return null;
+        } catch (error) {
+            console.error("Error calling Gemini API:", error);
+            alert("Sorry, there was an error with the smart search. Please try again.");
+            return null;
+        }
+    }
+
+    async function handleLlmSearch() {
+        const query = llmQueryInput.value.trim();
+        if (!query) return;
+
+        // Show loading state
+        searchSpinner.classList.remove('hidden');
+        searchBtnText.textContent = 'Searching...';
+        llmSearchBtn.disabled = true;
+
+        const searchTerm = await callGemini(query);
+
+        if (searchTerm) {
+            const searchProducts = pyodide.globals.get('search_products_py');
+            const search_results_js = await searchProducts(searchTerm);
+            
+            if (search_results_js) {
+                const searchResults = search_results_js.toJs({dict_converter : Object.fromEntries});
+                 search_results_js.destroy(); // Clean up Pyodide proxy
+
+                recommendationSection.style.display = 'none';
+                productGrid.parentElement.style.display = 'block';
+                productGridTitle.style.display = 'block';
+                productGridTitle.textContent = `Search Results for: "${searchTerm}"`;
+                renderProducts(searchResults, productGrid);
+                productGridTitle.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                productGridTitle.textContent = `No Results for: "${searchTerm}"`;
+                productGrid.innerHTML = `<p class="text-center col-span-full text-gray-500">We couldn't find any products matching your search.</p>`;
+            }
+        } else {
+            productGridTitle.textContent = 'Smart Search Failed';
+            productGrid.innerHTML = `<p class="text-center col-span-full text-gray-500">Could not determine a search term from your query. Please try being more specific.</p>`;
+        }
+        
+        // Restore button state
+        searchSpinner.classList.add('hidden');
+        searchBtnText.textContent = 'Find Products';
+        llmSearchBtn.disabled = false;
+    }
+
+    llmSearchBtn.addEventListener('click', handleLlmSearch);
+    llmQueryInput.addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') {
+            handleLlmSearch();
+        }
+    });
+
+    // Start the application
+    main();
+});
+</script>
+
+</body>
+</html>
+
